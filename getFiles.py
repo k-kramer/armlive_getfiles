@@ -8,13 +8,14 @@ Web Tools Contact: Ranjeet Devarakonda zzr@ornl.gov
 Purpose:
     This tool supports downloading files using the ARM Live Data Webservice
 Requirements:
-    This tool requires python3 for urllib.request module
+    This tool requires python3, requests, and loguru package
 """
 import argparse
 import json
 import requests
 import sys
 import os
+from loguru import logger
 
 HELP_DESCRIPTION = """
 *************************** ARM LIVE UTILITY TOOL ****************************
@@ -85,13 +86,24 @@ def parse_arguments():
     return cli_args, unknown_args
 
 def main(cli_args):
-    """
+    """ main armlive automation script
 
     :param cli_args:
         A argparse.Namespace object with an attribute for each expected command line argument.
     :return:
         None
     """
+    # set logging level
+    logger.remove(0)
+    logger.level('CRITICAL', color='<r>')
+    logger.level('WARNING', color='<y>')
+    logger.level('DEBUG', color='<lm>')
+    logger.level('INFO', color='<le>')
+    if cli_args.debug or cli_args.test:
+        logger.add(sys.stdout, colorize=True, level='DEBUG')
+    else:
+        logger.add(sys.stdout, colorize=True, level='INFO',
+                   format='<e>{time:YYYY:MM:D:HH:mm:ss}</e> |<le>{level}</le>| <g>{message}</g>')
     # default start and end are empty
     start, end = '', ''
     # start and end strings for query_url are constructed if the arguments were provided
@@ -103,19 +115,17 @@ def main(cli_args):
     query_url = 'https://adc.arm.gov/armlive/livedata/query?user={0}&ds={1}{2}{3}&wt=json'\
         .format(cli_args.user, cli_args.datastream, start, end)
 
-    if cli_args.debug or cli_args.test:
-        print("Getting file list using query url:\n\t{0}".format(query_url))
+    logger.debug("Getting file list using query url:\n\t{0}".format(query_url))
     # get url response, read the body of the message, and decode from bytes type to utf-8 string
     response_body = requests.get(query_url).text
 
     # if the response is an html doc, then there was an error with the user
     if response_body[1:14] == "!DOCTYPE html":
-        print("Error with user. Check username or token.")
+        logger.warning("Error with user. Check username or token.")
         exit(1)
     # parse into json object
     response_body_json = json.loads(response_body)
-    if cli_args.debug or cli_args.test:
-        print("response body:\n{0}\n".format(json.dumps(response_body_json, indent=True)))
+    logger.debug("response body:\n{0}\n".format(json.dumps(response_body_json, indent=True)))
 
     # construct output directory
     if cli_args.output:
@@ -130,12 +140,11 @@ def main(cli_args):
         num_files = len(response_body_json["files"])
         if response_body_json["status"] == "success" and num_files > 0:
             for fname in response_body_json['files']:
-                print("[DOWNLOADING] {}".format(fname))
+                logger.info("[DOWNLOADING] {}".format(fname))
                 # construct link to web service saveData function
                 save_data_url = "https://adc.arm.gov/armlive/livedata/saveData?user={0}&file={1}"\
                     .format(cli_args.user, fname)
-                if cli_args.debug:
-                    print("downloading file: {0}\n\tusing link: {1}".format(fname, save_data_url))
+                logger.debug("Using link: {1}".format(fname, save_data_url))
 
                 output_file = os.path.join(output_dir, fname)
                 # make directory if it doesn't exist
@@ -144,13 +153,13 @@ def main(cli_args):
                 # create file and write bytes to file
                 with open(output_file, 'wb') as open_file:
                     open_file.write(requests.get(save_data_url).content)
-                if cli_args.debug:
-                    print("file saved to --> {}\n".format(output_file))
+                    logger.success("[DOWNLOADED] {}".format(fname))
+                logger.debug("file saved to --> {}\n".format(output_file))
         else:
-            print("No files returned or url status error.\n"
-                  "Check datastream name, start, and end date.")
+            logger.warning("No files returned or url status error.\n"
+                           "Check datastream name, start, and end date.")
     else:
-        print("*** Files would have been downloaded to directory:\n----> {}".format(output_dir))
+        logger.debug("*** Files would have been downloaded to directory:\n----> {}".format(output_dir))
 
 if __name__ == "__main__":
     CLI_ARGS, UNKNOWN_ARGS = parse_arguments()

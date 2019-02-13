@@ -13,7 +13,7 @@ setup(
     ],
     entry_points = {
             'console_scripts': [
-                'getFiles = getFiles:main',
+                'getFiles = src.getFiles:main',
             ],
         }
 )

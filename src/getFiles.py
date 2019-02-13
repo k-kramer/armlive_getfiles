@@ -12,7 +12,6 @@ Requirements:
 """
 from __future__ import (division, print_function, absolute_import,
                         unicode_literals)
-from builtins import int
 try:
     from future_builtins import ascii, filter, hex, map, oct, zip
 except:

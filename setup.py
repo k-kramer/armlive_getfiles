@@ -7,13 +7,13 @@ setup(
     author='Michael Giansiracusa',
     author_email='giansiracumt@ornl.gov',
     packages=find_packages(),
-    requires=[
+    install_requires=[
         'requests',
         'loguru',
     ],
     entry_points = {
             'console_scripts': [
-                'getFiles = src.getFiles:main',
+                'getARMFiles = src.getFiles:main',
             ],
         }
 )

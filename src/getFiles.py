@@ -95,7 +95,8 @@ def parse_arguments():
 
     return cli_args, unknown_args
 
-def main(cli_args):
+def main():
+    cli_args, unknown_args = parse_arguments()
     """ main armlive automation script
 
     :param cli_args:
@@ -172,6 +173,5 @@ def main(cli_args):
         logger.debug("*** Files would have been downloaded to directory:\n----> {}".format(output_dir))
 
 if __name__ == "__main__":
-    CLI_ARGS, UNKNOWN_ARGS = parse_arguments()
-    main(CLI_ARGS)
+    main()
 

@@ -2,6 +2,7 @@
 A collection of python packages to assist using armlive web service
 
 ##Installation
+
 ###Pip install
 This collection is a pip installable project that will install it's own dependencies. 
 The only requirement for using it is having pip installed on the user local machine. 
@@ -10,6 +11,7 @@ path for the uer local machine.
 pip install git+https://code.ornl.gov/ofg/armlive_getfiles.git
 Once pip installs the package the following command can be run on the command line for more info.
 getARMFiles --help
+
 ###Clone install
 Alternatively, the repository can be cloned and run using python if the requests package is installed.
 Clone the project and navigate to the src directory and run the following command for more info.

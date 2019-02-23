@@ -10,25 +10,14 @@ Purpose:
 Requirements:
     This tool requires python3, requests, and loguru package
 """
-from __future__ import (division, print_function, absolute_import,
-                        unicode_literals)
-try:
-    from future_builtins import ascii, filter, hex, map, oct, zip
-except:
-    pass
-import sys
-if sys.version_info.major > 2:
-    xrange = range
+import asyncio
 import argparse
 import json
 import requests
 import sys
 import os
-if sys.version_info[0] >= 3:
-    from loguru import logger
-else:
-    import logging
-    logger = logging.getLogger(__name__)
+from loguru import logger
+
 HELP_DESCRIPTION = """
 *************************** ARM LIVE UTILITY TOOL ***************************************
 This tool will help users utilize the ARM Live Data Webservice to download ARM data.
@@ -98,6 +87,9 @@ def parse_arguments():
     return cli_args, unknown_args
 
 def main():
+    # cli_args, unknown_args = parse_arguments()
+    cli_args = argparse.Namespace(user="devarakondar:5aebb6fb63e1032f", datastream="sgpaerich1B1.a1",
+                                  start="2003-01-01", end="2003-02-01", output='', debug=True, test=False)
     """ main armlive automation script
 
     :param cli_args:
@@ -105,46 +97,37 @@ def main():
     :return:
         None
     """
-    cli_args, unknown_args = parse_arguments()
-    # Check which version of python is running and configure logging, python < 3 logging | python > 3 loguru.
-    if sys.version_info[0] >= 3:
-        # Remove default logger for loguru
-        logger.remove(0)
-        # Set logging level and colorize for loguru
-        logger.level('CRITICAL', color='<r>')
-        logger.level('WARNING', color='<y>')
-        logger.level('DEBUG', color='<lm>')
-        logger.level('INFO', color='<le>')
-        if cli_args.debug or cli_args.test:
-            logger.add(sys.stdout, colorize=True, level='DEBUG')
-        else:
-            logger.add(sys.stdout, colorize=True, level='INFO',
-                   format='<e>{time:YYYY:MM:D:HH:mm:ss}</e> |<le>{level}</le>| <g>{message}</g>')
+    # set logging level
+    logger.remove(0)
+    logger.level('CRITICAL', color='<r>')
+    logger.level('WARNING', color='<y>')
+    logger.level('DEBUG', color='<lm>')
+    logger.level('INFO', color='<le>')
+    if cli_args.debug or cli_args.test:
+        logger.add(sys.stdout, colorize=True, level='DEBUG')
     else:
-        # Set logging level for standard library logging module
-        if cli_args.debug or cli_args.test:
-            logging.basicConfig(level=logging.DEBUG)
-        else:
-            logging.basicConfig(level=logging.INFO)
-    # Default start and end are empty so they can be optional in url
+        logger.add(sys.stdout, colorize=True, level='INFO',
+               format='<e>{time:YYYY:MM:D:HH:mm:ss}</e> |<le>{level}</le>| <g>{message}</g>')
+    # default start and end are empty
     start, end = '', ''
-    # Start and end strings for query_url are constructed if the arguments were provided
+    # start and end strings for query_url are constructed if the arguments were provided
     if cli_args.start:
         start = "&start={}".format(cli_args.start)
     if cli_args.end:
         end = "&end={}".format(cli_args.end)
-    # Build the url to query the web service using the arguments provided
+    # build the url to query the web service using the arguments provided
     query_url = 'https://adc.arm.gov/armlive/livedata/query?user={0}&ds={1}{2}{3}&wt=json'\
         .format(cli_args.user, cli_args.datastream, start, end)
 
     logger.debug("Getting file list using query url:\n\t{0}".format(query_url))
-    # Get url response, read the body of the message, and decode from bytes type to utf-8 string
+    # get url response, read the body of the message, and decode from bytes type to utf-8 string
     response_body = requests.get(query_url).text
 
-    # If the response is an html doc, then there was an error with the user
+    # if the response is an html doc, then there was an error with the user
     if response_body[1:14] == "!DOCTYPE html":
         logger.warning("Error with user. Check username or token.")
         exit(1)
+    # parse into json object
     response_body_json = json.loads(response_body)
     logger.debug("response body:\n{0}\n".format(json.dumps(response_body_json, indent=True)))
 
@@ -155,33 +138,67 @@ def main():
     else:
         # if no folder given, add datastream folder to current working dir to prevent file mix-up
         output_dir = os.path.join(os.getcwd(), cli_args.datastream)
-
+    # make directory if it doesn't exist
+    if not os.path.isdir(output_dir):
+        os.makedirs(output_dir, exist_ok=True)
     # not testing, response is successful and files were returned
     if not cli_args.test:
         num_files = len(response_body_json["files"])
         if response_body_json["status"] == "success" and num_files > 0:
-            for fname in response_body_json['files']:
-                logger.info("[DOWNLOADING] {}".format(fname))
-                # construct link to web service saveData function
-                save_data_url = "https://adc.arm.gov/armlive/livedata/saveData?user={0}&file={1}"\
-                    .format(cli_args.user, fname)
-                logger.debug("Using link: {1}".format(fname, save_data_url))
-
-                output_file = os.path.join(output_dir, fname)
-                # make directory if it doesn't exist
-                if not os.path.isdir(output_dir):
-                    os.makedirs(output_dir)
-                # create file and write bytes to file
-                with open(output_file, 'wb') as open_file:
-                    open_file.write(requests.get(save_data_url).content)
-                    if sys.version_info[0] >= 3: logger.success("[DOWNLOADED] {}".format(fname))
-                    else: logger.info("[DOWNLOADED] {}".format(fname))
-                logger.debug("file saved to --> {}\n".format(output_file))
+            # create async event loop
+            loop = asyncio.get_event_loop()
+            # create queues and tasks for async execution
+            links = asyncio.Queue()
+            data = asyncio.Queue()
+            tasks = asyncio.gather(
+                build_links(response_body_json, cli_args.user, links),
+                downloader(num_files, loop, links, data),
+                write_files(output_dir, num_files, loop, data)
+            )
+            loop.run_until_complete(tasks)
         else:
             logger.warning("No files returned or url status error.\n"
-                           "Check datastream name, start, and end date.")
+                           "Check datastream name, start, and end date.\n"
+                           "Data might not be in ADC Live Archive.")
     else:
         logger.debug("*** Files would have been downloaded to directory:\n----> {}".format(output_dir))
 
+async def build_links(response_body_json: json, user: str, links: asyncio.Queue):
+    # construct links to web service saveData function
+    for file_name in response_body_json['files']:
+        logger.debug("[CREATING LINK] {}".format(file_name))
+        get_data_url = "https://adc.arm.gov/armlive/livedata/saveData?user={0}&file={1}".format(user, file_name)
+        work = (file_name, get_data_url)
+        # pass them to downloader queue
+        await links.put(work)
+
+async def downloader(num_donwloads: int, loop: asyncio.AbstractEventLoop, links: asyncio.Queue, data: asyncio.Queue):
+    # get work from downloader queue and put into safe bytes to file queue
+    downloaded = 0
+    while downloaded < num_donwloads:
+        file_name, get_data_url = await links.get()
+        logger.info("[DOWNLOADING] {}".format(file_name))
+        logger.debug("Using link: {1}".format(file_name, get_data_url))
+        response = await loop.run_in_executor(None, requests.get, get_data_url)
+        file_bytes = response.content
+        work = (file_name, file_bytes)
+        logger.debug("[DOWNLOADED] {}".format(file_name))
+        await data.put(work)
+        downloaded += 1
+
+async def write_files(output_dir: str, num_files: int, loop: asyncio.AbstractEventLoop, data: asyncio.Queue):
+    saved = 0
+    while saved < num_files:
+        file_name, file_bytes = await data.get()
+        output_file = os.path.join(output_dir, file_name)
+        # create file and write bytes to file
+        with open(output_file, 'wb') as open_file:
+            await loop.run_in_executor(None, open_file.write, file_bytes)
+        logger.success("[SAVED] {}".format(output_file))
+        saved += 1
+
 if __name__ == "__main__":
+    from time import time
+    start = time()
     main()
+    logger.debug('Execution time: {}'.format(time() - start))

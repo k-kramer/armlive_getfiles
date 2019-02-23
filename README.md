@@ -12,7 +12,7 @@ pip install git+https://code.ornl.gov/ofg/armlive_getfiles.git
 Once pip installs the package the following command can be run on the command line for more info.
 getARMFiles --help
 
-###C lone install
+### Clone install
 Alternatively, the repository can be cloned and run using python if the requests package is installed.
 Clone the project and navigate to the src directory and run the following command for more info.
 python getFiles.py --help 

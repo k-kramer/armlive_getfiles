@@ -17,6 +17,8 @@ Alternatively, the repository can be cloned and run using python if the requests
 Clone the project and navigate to the src directory and run the following command for more info.
 python getFiles.py --help 
 
+###Need help with pip?
+<details><summary>Click Here</summary>
 ### What Is PIP for Python?
 PIP is a recursive acronym that stands for “PIP Installs Packages” or “Preferred Installer Program”. It’s a command-line utility that allows you to install, reinstall, or uninstall PyPI packages with a simple and straightforward command: pip.
 
@@ -152,3 +154,4 @@ pip install package-name --upgrade --force-reinstall
 To completely get rid of a package:
 
 pip uninstall package-name
+</details>

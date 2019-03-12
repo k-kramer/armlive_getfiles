@@ -91,8 +91,7 @@ def parse_arguments():
 
 def main():
     cli_args, unknown_args = parse_arguments()
-    cli_args = argparse.Namespace(user="devarakondar:5aebb6fb63e1032f", datastream="sgpaerich1B1.a1",
-                                  start="2003-01-01", end="2003-02-01", output='', debug=True, test=False, processes=10)
+
     """ main armlive automation script
 
     :param cli_args:

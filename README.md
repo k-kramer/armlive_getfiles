@@ -8,14 +8,21 @@ This collection is a pip installable project that will install it's own dependen
 The only requirement for using it is having pip installed on the user local machine. 
 With pip installed run the following command to install this package into the python 
 path for the uer local machine. 
+```
 pip install git+https://code.ornl.gov/ofg/armlive_getfiles.git
+```
 Once pip installs the package the following command can be run on the command line for more info.
+```
 getARMFiles --help
+```
 
 ### Clone install
 Alternatively, the repository can be cloned and run using python if the requests package is installed.
 Clone the project and navigate to the src directory and run the following command for more info.
-python getFiles.py --help 
+```python getFiles.py --help```
+
+### Need help with pip?
+<details><summary>Click Here</summary>
 
 ### What Is PIP for Python?
 PIP is a recursive acronym that stands for “PIP Installs Packages” or “Preferred Installer Program”. It’s a command-line utility that allows you to install, reinstall, or uninstall PyPI packages with a simple and straightforward command: pip.
@@ -152,3 +159,4 @@ pip install package-name --upgrade --force-reinstall
 To completely get rid of a package:
 
 pip uninstall package-name
+</details>

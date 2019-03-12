@@ -10,15 +10,25 @@ Purpose:
 Requirements:
     This tool requires python3, requests, and loguru package
 """
+from __future__ import (division, print_function, absolute_import,
+                        unicode_literals)
+try:
+    from future_builtins import ascii, filter, hex, map, oct, zip
+except:
+    pass
+import sys
+if sys.version_info.major > 2:
+    xrange = range
 import argparse
 import json
 import requests
 import sys
 import os
-from functools import partial
-from loguru import logger
-from multiprocessing import Pool
-
+if sys.version_info[0] >= 3:
+    from loguru import logger
+else:
+    import logging
+    logger = logging.getLogger(__name__)
 HELP_DESCRIPTION = """
 *************************** ARM LIVE UTILITY TOOL ***************************************
 This tool will help users utilize the ARM Live Data Webservice to download ARM data.
@@ -77,8 +87,6 @@ def parse_arguments():
                              "query will be run.")
     parser.add_argument("-D", "--Debug", action="store_true", dest="debug",
                         help="Optional; flag that enables debug printing")
-    parser.add_argument("-P", "--proc", type=int, dest="processes", default=1,
-                        help="Optional; Farm work to subprocesses to speed up downloading.")
 
     cli_args, unknown_args = parser.parse_known_args()
 
@@ -90,9 +98,6 @@ def parse_arguments():
     return cli_args, unknown_args
 
 def main():
-    cli_args, unknown_args = parse_arguments()
-    cli_args = argparse.Namespace(user="devarakondar:5aebb6fb63e1032f", datastream="sgpaerich1B1.a1",
-                                  start="2003-01-01", end="2003-02-01", output='', debug=True, test=False, processes=10)
     """ main armlive automation script
 
     :param cli_args:
@@ -100,37 +105,46 @@ def main():
     :return:
         None
     """
-    # set logging level
-    logger.remove(0)
-    logger.level('CRITICAL', color='<r>')
-    logger.level('WARNING', color='<y>')
-    logger.level('DEBUG', color='<lm>')
-    logger.level('INFO', color='<le>')
-    if cli_args.debug or cli_args.test:
-        logger.add(sys.stdout, colorize=True, level='DEBUG')
+    cli_args, unknown_args = parse_arguments()
+    # Check which version of python is running and configure logging, python < 3 logging | python > 3 loguru.
+    if sys.version_info[0] >= 3:
+        # Remove default logger for loguru
+        logger.remove(0)
+        # Set logging level and colorize for loguru
+        logger.level('CRITICAL', color='<r>')
+        logger.level('WARNING', color='<y>')
+        logger.level('DEBUG', color='<lm>')
+        logger.level('INFO', color='<le>')
+        if cli_args.debug or cli_args.test:
+            logger.add(sys.stdout, colorize=True, level='DEBUG')
+        else:
+            logger.add(sys.stdout, colorize=True, level='INFO',
+                   format='<e>{time:YYYY:MM:D:HH:mm:ss}</e> |<le>{level}</le>| <g>{message}</g>')
     else:
-        logger.add(sys.stdout, colorize=True, level='INFO',
-               format='<e>{time:YYYY:MM:D:HH:mm:ss}</e> |<le>{level}</le>| <g>{message}</g>')
-    # default start and end are empty
+        # Set logging level for standard library logging module
+        if cli_args.debug or cli_args.test:
+            logging.basicConfig(level=logging.DEBUG)
+        else:
+            logging.basicConfig(level=logging.INFO)
+    # Default start and end are empty so they can be optional in url
     start, end = '', ''
-    # start and end strings for query_url are constructed if the arguments were provided
+    # Start and end strings for query_url are constructed if the arguments were provided
     if cli_args.start:
         start = "&start={}".format(cli_args.start)
     if cli_args.end:
         end = "&end={}".format(cli_args.end)
-    # build the url to query the web service using the arguments provided
+    # Build the url to query the web service using the arguments provided
     query_url = 'https://adc.arm.gov/armlive/livedata/query?user={0}&ds={1}{2}{3}&wt=json'\
         .format(cli_args.user, cli_args.datastream, start, end)
 
     logger.debug("Getting file list using query url:\n\t{0}".format(query_url))
-    # get url response, read the body of the message, and decode from bytes type to utf-8 string
+    # Get url response, read the body of the message, and decode from bytes type to utf-8 string
     response_body = requests.get(query_url).text
 
-    # if the response is an html doc, then there was an error with the user
+    # If the response is an html doc, then there was an error with the user
     if response_body[1:14] == "!DOCTYPE html":
         logger.warning("Error with user. Check username or token.")
         exit(1)
-    # parse into json object
     response_body_json = json.loads(response_body)
     logger.debug("response body:\n{0}\n".format(json.dumps(response_body_json, indent=True)))
 
@@ -141,39 +155,33 @@ def main():
     else:
         # if no folder given, add datastream folder to current working dir to prevent file mix-up
         output_dir = os.path.join(os.getcwd(), cli_args.datastream)
-    # make directory if it doesn't exist
-    if not os.path.isdir(output_dir):
-        os.makedirs(output_dir, exist_ok=True)
+
     # not testing, response is successful and files were returned
     if not cli_args.test:
         num_files = len(response_body_json["files"])
         if response_body_json["status"] == "success" and num_files > 0:
-            pool = Pool(cli_args.processes)
-            partial_downloader = partial(downloader, cli_args.user, output_dir)
-            pool.map(partial_downloader, response_body_json['files'])
+            for fname in response_body_json['files']:
+                logger.info("[DOWNLOADING] {}".format(fname))
+                # construct link to web service saveData function
+                save_data_url = "https://adc.arm.gov/armlive/livedata/saveData?user={0}&file={1}"\
+                    .format(cli_args.user, fname)
+                logger.debug("Using link: {1}".format(fname, save_data_url))
+
+                output_file = os.path.join(output_dir, fname)
+                # make directory if it doesn't exist
+                if not os.path.isdir(output_dir):
+                    os.makedirs(output_dir)
+                # create file and write bytes to file
+                with open(output_file, 'wb') as open_file:
+                    open_file.write(requests.get(save_data_url).content)
+                    if sys.version_info[0] >= 3: logger.success("[DOWNLOADED] {}".format(fname))
+                    else: logger.info("[DOWNLOADED] {}".format(fname))
+                logger.debug("file saved to --> {}\n".format(output_file))
         else:
             logger.warning("No files returned or url status error.\n"
                            "Check datastream name, start, and end date.")
     else:
         logger.debug("*** Files would have been downloaded to directory:\n----> {}".format(output_dir))
 
-def downloader(user, output_dir, fname):
-    logger.info("[DOWNLOADING] {}".format(fname))
-    # construct link to web service saveData function
-    save_data_url = "https://adc.arm.gov/armlive/livedata/saveData?user={0}&file={1}".format(user, fname)
-    logger.debug("Using link: {1}".format(fname, save_data_url))
-    output_file = os.path.join(output_dir, fname)
-    # make directory if it doesn't exist
-    if not os.path.isdir(output_dir):
-        os.makedirs(output_dir)
-    # create file and write bytes to file
-    with open(output_file, 'wb') as open_file:
-        open_file.write(requests.get(save_data_url).content)
-        logger.success("[DOWNLOADED] {}".format(fname))
-    logger.debug("file saved to --> {}\n".format(output_file))
-
 if __name__ == "__main__":
-    from time import time
-    start = time()
     main()
-    logger.debug('Execution time: {}'.format(time() - start))

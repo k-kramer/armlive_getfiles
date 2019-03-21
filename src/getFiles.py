@@ -10,24 +10,18 @@ Purpose:
 Requirements:
     This tool requires python3, requests, and loguru package
 """
-from __future__ import (division, print_function, absolute_import,
-                        unicode_literals)
-try:
-    from future_builtins import ascii, filter, hex, map, oct, zip
-except:
-    pass
-import sys
-if sys.version_info.major > 2:
-    xrange = range
+
 import argparse
 import json
 import requests
 import sys
 import os
+from functools import partial
 from loguru import logger
+from multiprocessing import Pool
 
 HELP_DESCRIPTION = """
-*************************** ARM LIVE UTILITY TOOL ****************************
+*************************** ARM LIVE UTILITY TOOL ***************************************
 This tool will help users utilize the ARM Live Data Webservice to download ARM data.
 This programmatic interface allows users to query and automate machine-to-machine
 downloads of ARM data. This tool uses a REST URL and specific parameters (saveData,
@@ -41,11 +35,11 @@ disk (on HPSS), will have to go through the regular ordering process. More infor
 about this REST API and tools can be found at: https://adc.arm.gov/armlive/#scripts
 
 To login/register for an access token visit: https://adc.arm.gov/armlive/livedata/home.
-----------------------------******************************************************************************
+******************************************************************************************
 """
-EXAMPLE = """
-Example:
+EXAMPLE = """Example:
 python getFiles.py -u userName:XXXXXXXXXXXXXXXX -ds sgpmetE13.b1 -s 2017-01-14 -e 2017-01-20
+getARMFiles -u userName:XXXXXXXXXXXXXXXX -ds sgpmetE13.b1 -s 2017-01-14 -e 2017-01-20
 """
 
 def parse_arguments():
@@ -57,17 +51,17 @@ def parse_arguments():
         The second return arg contains unexpected command line flags and arguments.
     """
     parser = argparse.ArgumentParser(description=HELP_DESCRIPTION, epilog=EXAMPLE,
-                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+                                     formatter_class=argparse.RawTextHelpFormatter)
     required_arguments = parser.add_argument_group("required arguments")
 
     required_arguments.add_argument("-u", "--user", type=str, dest="user", required=True,
-                                    help="The user's ARM ID and access token, separated by a colon."
+                                    help="The user's ARM ID and access token, separated by a colon.\n"
                                          "Obtained from https://adc.arm.gov/armlive/livedata/home")
     required_arguments.add_argument("-ds", "--datastream", type=str, dest="datastream",
-                                    help="Name of the datastream. The query service type allows the"
-                                         "user to enter a DATASTREAM property that's less specific,"
-                                         "and returns a collection of data files that match the"
-                                         "DATASTREAM property. For example: sgp30ebbrE26.b1")
+                                    help="Name of the datastream. The query service type allows the\n"
+                                         "user to enter a DATASTREAM property that's less specific,\n"
+                                         "and returns a collection of data files that match the\n"
+                                         "DATASTREAM property. For example: sgp30ebbrE26.b1\n")
 
     parser.add_argument("-s", "--start", type=str, dest="start",
                         help="Optional; start date for the datastream. "
@@ -76,14 +70,16 @@ def parse_arguments():
                         help="Optional; end date for the datastream. "
                              "Must be of the form YYYY-MM-DD")
     parser.add_argument("-o", "--out", type=str, dest="output", default='',
-                        help="Optional; full path to directory where you would like the output"
-                             "files. Defaults to folder named after datastream in current working"
+                        help="Optional; full path to directory where you would like the output\n"
+                             "files. Defaults to folder named after datastream in current working\n"
                              "directory.")
     parser.add_argument("-T", "--test", action="store_true", dest="test",
-                        help="Optional; flag that enables test mode. When in test mode only the"
+                        help="Optional; flag that enables test mode. When in test mode only the\n"
                              "query will be run.")
     parser.add_argument("-D", "--Debug", action="store_true", dest="debug",
                         help="Optional; flag that enables debug printing")
+    parser.add_argument("-P", "--proc", type=int, dest="processes", default=1,
+                        help="Optional; Farm work to subprocesses to speed up downloading.")
 
     cli_args, unknown_args = parser.parse_known_args()
 
@@ -96,6 +92,7 @@ def parse_arguments():
 
 def main():
     cli_args, unknown_args = parse_arguments()
+
     """ main armlive automation script
 
     :param cli_args:
@@ -113,7 +110,7 @@ def main():
         logger.add(sys.stdout, colorize=True, level='DEBUG')
     else:
         logger.add(sys.stdout, colorize=True, level='INFO',
-                   format='<e>{time:YYYY:MM:D:HH:mm:ss}</e> |<le>{level}</le>| <g>{message}</g>')
+               format='<e>{time:YYYY:MM:D:HH:mm:ss}</e> |<le>{level}</le>| <g>{message}</g>')
     # default start and end are empty
     start, end = '', ''
     # start and end strings for query_url are constructed if the arguments were provided
@@ -144,33 +141,39 @@ def main():
     else:
         # if no folder given, add datastream folder to current working dir to prevent file mix-up
         output_dir = os.path.join(os.getcwd(), cli_args.datastream)
-
+    # make directory if it doesn't exist
+    if not os.path.isdir(output_dir):
+        os.makedirs(output_dir, exist_ok=True)
     # not testing, response is successful and files were returned
     if not cli_args.test:
         num_files = len(response_body_json["files"])
         if response_body_json["status"] == "success" and num_files > 0:
-            for fname in response_body_json['files']:
-                logger.info("[DOWNLOADING] {}".format(fname))
-                # construct link to web service saveData function
-                save_data_url = "https://adc.arm.gov/armlive/livedata/saveData?user={0}&file={1}"\
-                    .format(cli_args.user, fname)
-                logger.debug("Using link: {1}".format(fname, save_data_url))
-
-                output_file = os.path.join(output_dir, fname)
-                # make directory if it doesn't exist
-                if not os.path.isdir(output_dir):
-                    os.makedirs(output_dir)
-                # create file and write bytes to file
-                with open(output_file, 'wb') as open_file:
-                    open_file.write(requests.get(save_data_url).content)
-                    logger.success("[DOWNLOADED] {}".format(fname))
-                logger.debug("file saved to --> {}\n".format(output_file))
+            pool = Pool(cli_args.processes)
+            partial_downloader = partial(downloader, cli_args.user, output_dir)
+            pool.map(partial_downloader, response_body_json['files'])
         else:
             logger.warning("No files returned or url status error.\n"
                            "Check datastream name, start, and end date.")
     else:
         logger.debug("*** Files would have been downloaded to directory:\n----> {}".format(output_dir))
 
-if __name__ == "__main__":
-    main()
+def downloader(user, output_dir, fname):
+    logger.info("[DOWNLOADING] {}".format(fname))
+    # construct link to web service saveData function
+    save_data_url = "https://adc.arm.gov/armlive/livedata/saveData?user={0}&file={1}".format(user, fname)
+    logger.debug("Using link: {1}".format(fname, save_data_url))
+    output_file = os.path.join(output_dir, fname)
+    # make directory if it doesn't exist
+    if not os.path.isdir(output_dir):
+        os.makedirs(output_dir)
+    # create file and write bytes to file
+    with open(output_file, 'wb') as open_file:
+        open_file.write(requests.get(save_data_url).content)
+        logger.success("[DOWNLOADED] {}".format(fname))
+    logger.debug("file saved to --> {}\n".format(output_file))
 
+if __name__ == "__main__":
+    from time import time
+    start = time()
+    main()
+    logger.debug('Execution time: {}'.format(time() - start))

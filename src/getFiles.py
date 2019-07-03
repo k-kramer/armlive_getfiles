@@ -100,9 +100,6 @@ def main():
 
 
     cli_args, unknown_args = parse_arguments()
-    if cli_args.debug:
-        from time import time
-        start = time()
 
     # default start and end are empty
     start, end = '', ''
@@ -149,7 +146,6 @@ def main():
                            "Check datastream name, start, and end date.")
     else:
         if cli_args.debug: print("*** Files would have been downloaded to directory:\n----> {}".format(output_dir))
-    if cli_args.debug: print('Execution time: {}'.format(time() - start))
 
 
 def downloader(cli_args, output_dir, fname):

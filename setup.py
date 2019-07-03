@@ -9,6 +9,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         'requests',
+        'loguru',
     ],
     entry_points = {
             'console_scripts': [

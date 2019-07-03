@@ -98,6 +98,12 @@ def main(cli_args):
         None
     """
 
+
+    cli_args, unknown_args = parse_arguments()
+    if cli_args.debug:
+        from time import time
+        start = time()
+
     # default start and end are empty
     start, end = '', ''
     # start and end strings for query_url are constructed if the arguments were provided
@@ -143,7 +149,8 @@ def main(cli_args):
                            "Check datastream name, start, and end date.")
     else:
         if cli_args.debug: print("*** Files would have been downloaded to directory:\n----> {}".format(output_dir))
-
+    if cli_args.debug: print('Execution time: {}'.format(time() - start))
+    
 def downloader(cli_args, output_dir, fname):
     output_file = os.path.join(output_dir, fname)
     if os.path.isfile(output_file):
@@ -164,8 +171,4 @@ def downloader(cli_args, output_dir, fname):
         if cli_args.debug: print("file saved to --> {}\n".format(output_file))
 
 if __name__ == "__main__":
-    from time import time
-    cli_args, unknown_args = parse_arguments()
-    if cli_args.debug: start = time()
-    main(cli_args)
-    if cli_args.debug: print('Execution time: {}'.format(time() - start))
+    main()

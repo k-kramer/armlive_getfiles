@@ -17,6 +17,7 @@ import requests
 import sys
 import os
 from functools import partial
+from loguru import logger
 from multiprocessing import Pool
 
 HELP_DESCRIPTION = """
@@ -89,7 +90,9 @@ def parse_arguments():
 
     return cli_args, unknown_args
 
-def main(cli_args):
+def main():
+    cli_args, unknown_args = parse_arguments()
+
     """ main armlive automation script
 
     :param cli_args:
@@ -97,7 +100,17 @@ def main(cli_args):
     :return:
         None
     """
-
+    # set logging level
+    logger.remove(0)
+    logger.level('CRITICAL', color='<r>')
+    logger.level('WARNING', color='<y>')
+    logger.level('DEBUG', color='<lm>')
+    logger.level('INFO', color='<le>')
+    if cli_args.debug or cli_args.test:
+        logger.add(sys.stdout, colorize=True, level='DEBUG')
+    else:
+        logger.add(sys.stdout, colorize=True, level='INFO',
+               format='<e>{time:YYYY:MM:D:HH:mm:ss}</e> |<le>{level}</le>| <g>{message}</g>')
     # default start and end are empty
     start, end = '', ''
     # start and end strings for query_url are constructed if the arguments were provided
@@ -109,17 +122,17 @@ def main(cli_args):
     query_url = 'https://adc.arm.gov/armlive/livedata/query?user={0}&ds={1}{2}{3}&wt=json'\
         .format(cli_args.user, cli_args.datastream, start, end)
 
-    if cli_args.debug: print("Getting file list using query url:\n\t{0}".format(query_url))
+    logger.debug("Getting file list using query url:\n\t{0}".format(query_url))
     # get url response, read the body of the message, and decode from bytes type to utf-8 string
     response_body = requests.get(query_url).text
 
     # if the response is an html doc, then there was an error with the user
     if response_body[1:14] == "!DOCTYPE html":
-        print("WARNING: Error with user. Check username or token.")
+        logger.warning("Error with user. Check username or token.")
         exit(1)
     # parse into json object
     response_body_json = json.loads(response_body)
-    if cli_args.debug: print("response body:\n{0}\n".format(json.dumps(response_body_json, indent=True)))
+    logger.debug("response body:\n{0}\n".format(json.dumps(response_body_json, indent=True)))
 
     # construct output directory
     if cli_args.output:
@@ -136,36 +149,31 @@ def main(cli_args):
         num_files = len(response_body_json["files"])
         if response_body_json["status"] == "success" and num_files > 0:
             pool = Pool(cli_args.processes)
-            partial_downloader = partial(downloader, cli_args, output_dir)
+            partial_downloader = partial(downloader, cli_args.user, output_dir)
             pool.map(partial_downloader, response_body_json['files'])
         else:
-            print("WARNING: No files returned or url status error.\n"
+            logger.warning("No files returned or url status error.\n"
                            "Check datastream name, start, and end date.")
     else:
-        if cli_args.debug: print("*** Files would have been downloaded to directory:\n----> {}".format(output_dir))
+        logger.debug("*** Files would have been downloaded to directory:\n----> {}".format(output_dir))
 
-def downloader(cli_args, output_dir, fname):
+def downloader(user, output_dir, fname):
+    logger.info("[DOWNLOADING] {}".format(fname))
+    # construct link to web service saveData function
+    save_data_url = "https://adc.arm.gov/armlive/livedata/saveData?user={0}&file={1}".format(user, fname)
+    logger.debug("Using link: {1}".format(fname, save_data_url))
     output_file = os.path.join(output_dir, fname)
-    if os.path.isfile(output_file):
-        print("[SKIPPING] {}".format(fname))
-        return
-    else:
-        print("[DOWNLOADING] {}".format(fname))
-        # construct link to web service saveData function
-        save_data_url = "https://adc.arm.gov/armlive/livedata/saveData?user={0}&file={1}".format(cli_args.user, fname)
-        if cli_args.debug: print("Using link: {1}".format(fname, save_data_url))
-        # make directory if it doesn't exist
-        if not os.path.isdir(output_dir):
-            os.makedirs(output_dir)
-        # create file and write bytes to file
-        with open(output_file, 'wb') as open_file:
-            open_file.write(requests.get(save_data_url).content)
-            print("[DOWNLOADED] {}".format(fname))
-        if cli_args.debug: print("file saved to --> {}\n".format(output_file))
+    # make directory if it doesn't exist
+    if not os.path.isdir(output_dir):
+        os.makedirs(output_dir)
+    # create file and write bytes to file
+    with open(output_file, 'wb') as open_file:
+        open_file.write(requests.get(save_data_url).content)
+        logger.success("[DOWNLOADED] {}".format(fname))
+    logger.debug("file saved to --> {}\n".format(output_file))
 
 if __name__ == "__main__":
     from time import time
-    cli_args, unknown_args = parse_arguments()
-    if cli_args.debug: start = time()
-    main(cli_args)
-    if cli_args.debug: print('Execution time: {}'.format(time() - start))
+    start = time()
+    main()
+    logger.debug('Execution time: {}'.format(time() - start))

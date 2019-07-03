@@ -89,7 +89,7 @@ def parse_arguments():
 
     return cli_args, unknown_args
 
-def main(cli_args):
+def main():
     """ main armlive automation script
 
     :param cli_args:

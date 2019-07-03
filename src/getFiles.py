@@ -150,7 +150,8 @@ def main(cli_args):
     else:
         if cli_args.debug: print("*** Files would have been downloaded to directory:\n----> {}".format(output_dir))
     if cli_args.debug: print('Execution time: {}'.format(time() - start))
-    
+
+
 def downloader(cli_args, output_dir, fname):
     output_file = os.path.join(output_dir, fname)
     if os.path.isfile(output_file):

@@ -78,7 +78,8 @@ def parse_arguments():
     parser.add_argument("-D", "--Debug", action="store_true", dest="debug",
                         help="Optional; flag that enables debug printing")
     parser.add_argument("-P", "--proc", type=int, dest="processes", default=1,
-                        help="Optional; Farm work to subprocesses to speed up downloading.")
+                        help="Optional; Farm work to subprocesses to speed up downloading.\n"
+                             "Default=1, Increase for faster downloading on better hardware.")
 
     cli_args, unknown_args = parser.parse_known_args()
 
@@ -114,7 +115,7 @@ def main():
 
     if cli_args.debug: print("Getting file list using query url:\n\t{0}".format(query_url))
     # get url response, read the body of the message, and decode from bytes type to utf-8 string
-    response_body = requests.get(query_url).text
+    response_body = requests.get(query_url, verify=False).text
 
     # if the response is an html doc, then there was an error with the user
     if response_body[1:14] == "!DOCTYPE html":
@@ -163,7 +164,7 @@ def downloader(cli_args, output_dir, fname):
             os.makedirs(output_dir)
         # create file and write bytes to file
         with open(output_file, 'wb') as open_file:
-            open_file.write(requests.get(save_data_url).content)
+            open_file.write(requests.get(save_data_url, verify=False).content)
             print("[DOWNLOADED] {}".format(fname))
         if cli_args.debug: print("file saved to --> {}\n".format(output_file))
 

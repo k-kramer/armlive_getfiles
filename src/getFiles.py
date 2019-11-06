@@ -87,12 +87,12 @@ def parse_arguments():
                         help="Optional; Farm work to subprocesses to speed up downloading.\n"
                              "Default=1, Max=24, Increase for faster downloading.")
 
-    cli_args, unknown_args = parser.parse_known_args()
-
-    if len(sys.argv) <= 1 or not (cli_args.user and cli_args.datastream):
+    if len(sys.argv) <= 1:
         parser.print_help()
         parser.print_usage()
         exit(1)
+
+    cli_args, unknown_args = parser.parse_known_args()
 
     return cli_args, unknown_args
 
@@ -175,8 +175,6 @@ def downloader(cli_args, output_dir, fname):
 
 if __name__ == "__main__":
     try:
-        if len(sys.argv) == 1:
-            sys.argv.append('-h')
         main()
     except KeyboardInterrupt:
         exit()

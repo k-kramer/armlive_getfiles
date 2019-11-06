@@ -8,7 +8,7 @@ Web Tools Contact: Ranjeet Devarakonda zzr@ornl.gov
 Purpose:
     This tool supports downloading files using the ARM Live Data Webservice
 Requirements:
-    This tool requires python3, requests, and loguru package
+    This tool requires python2.7+ or python3.5+, and requests package
 """
 
 import argparse
@@ -36,7 +36,9 @@ a link in an email to download data. All other data files, which are not on the 
 disk (on HPSS), will have to go through the regular ordering process. More information
 about this REST API and tools can be found at: https://adc.arm.gov/armlive/#scripts
 
+==========================================================================================
 To login/register for an access token visit: https://adc.arm.gov/armlive/livedata/home.
+==========================================================================================
 ******************************************************************************************
 """
 EXAMPLE = """Example:
@@ -55,34 +57,35 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description=HELP_DESCRIPTION, epilog=EXAMPLE,
                                      formatter_class=argparse.RawTextHelpFormatter)
     required_arguments = parser.add_argument_group("required arguments")
+    optional_artuments = parser.add_argument_group("optional arguments")
 
-    required_arguments.add_argument("-u", "--user", type=str, dest="user", required=True,
+    required_arguments.add_argument("-u", "--user", dest="user", required=True,
                                     help="The user's ARM ID and access token, separated by a colon.\n"
                                          "Obtained from https://adc.arm.gov/armlive/livedata/home")
-    required_arguments.add_argument("-ds", "--datastream", type=str, dest="datastream",
+    required_arguments.add_argument("-ds", "--datastream", dest="datastream", required=True,
                                     help="Name of the datastream. The query service type allows the\n"
                                          "user to enter a DATASTREAM property that's less specific,\n"
                                          "and returns a collection of data files that match the\n"
                                          "DATASTREAM property. For example: sgp30ebbrE26.b1\n")
 
-    parser.add_argument("-s", "--start", type=str, dest="start",
+    optional_artuments.add_argument("-s", "--start", type=str, dest="start",
                         help="Optional; start date for the datastream. "
                              "Must be of the form YYYY-MM-DD")
-    parser.add_argument("-e", "--end", type=str, dest="end",
+    optional_artuments.add_argument("-e", "--end", type=str, dest="end",
                         help="Optional; end date for the datastream. "
                              "Must be of the form YYYY-MM-DD")
-    parser.add_argument("-o", "--out", type=str, dest="output", default='',
+    optional_artuments.add_argument("-o", "--out", type=str, dest="output", default='',
                         help="Optional; full path to directory where you would like the output\n"
                              "files. Defaults to folder named after datastream in current working\n"
                              "directory.")
-    parser.add_argument("-T", "--test", action="store_true", dest="test",
+    optional_artuments.add_argument("-T", "--test", action="store_true", dest="test",
                         help="Optional; flag that enables test mode. When in test mode only the\n"
                              "query will be run.")
-    parser.add_argument("-D", "--Debug", action="store_true", dest="debug",
+    optional_artuments.add_argument("-D", "--Debug", action="store_true", dest="debug",
                         help="Optional; flag that enables debug printing")
-    parser.add_argument("-P", "--proc", type=int, dest="processes", default=1,
+    optional_artuments.add_argument("-p", "--proc", type=int, dest="processes", default=1,
                         help="Optional; Farm work to subprocesses to speed up downloading.\n"
-                             "Default=1, Increase for faster downloading on better hardware.")
+                             "Default=1, Max=24, Increase for faster downloading.")
 
     cli_args, unknown_args = parser.parse_known_args()
 
@@ -101,8 +104,6 @@ def main():
     :return:
         None
     """
-
-
     cli_args, unknown_args = parse_arguments()
 
     # default start and end are empty
@@ -142,7 +143,9 @@ def main():
     if not cli_args.test:
         num_files = len(response_body_json["files"])
         if response_body_json["status"] == "success" and num_files > 0:
-            pool = Pool(cli_args.processes)
+            processes = cli_args.processes if cli_args.processes < 24 else 24
+            print('processes: {}'.format(processes))
+            pool = Pool(processes)
             partial_downloader = partial(downloader, cli_args, output_dir)
             pool.map(partial_downloader, response_body_json['files'])
         else:
@@ -172,4 +175,10 @@ def downloader(cli_args, output_dir, fname):
         if cli_args.debug: print("file saved to --> {}\n".format(output_file))
 
 if __name__ == "__main__":
-    main()
+    try:
+        if len(sys.argv) == 1:
+            sys.argv.append('-h')
+        main()
+    except KeyboardInterrupt:
+        exit()
+

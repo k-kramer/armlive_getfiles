@@ -16,8 +16,11 @@ import json
 import requests
 import sys
 import os
+import urllib3
 from functools import partial
 from multiprocessing import Pool
+
+urllib3.disable_warnings()
 
 HELP_DESCRIPTION = """
 *************************** ARM LIVE UTILITY TOOL ***************************************

@@ -144,7 +144,6 @@ def main():
         num_files = len(response_body_json["files"])
         if response_body_json["status"] == "success" and num_files > 0:
             processes = cli_args.processes if cli_args.processes < 24 else 24
-            print('processes: {}'.format(processes))
             pool = Pool(processes)
             partial_downloader = partial(downloader, cli_args, output_dir)
             pool.map(partial_downloader, response_body_json['files'])

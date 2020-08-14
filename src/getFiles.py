@@ -109,8 +109,12 @@ def main():
     if cli_args.end:
         end = "&end={}".format(cli_args.end)
     # build the url to query the web service using the arguments provided
-    query_url = 'https://adc.arm.gov/armlive/livedata/query?user={0}&ds={1}{2}{3}&wt=json'\
-        .format(cli_args.user, cli_args.datastream, start, end)
+    if cli_args.test:
+        query_url = 'https://armweb-dev.ornl.gov/armlive/livedata/query?user={0}&ds={1}{2}{3}&wt=json'\
+         .format(cli_args.user, cli_args.datastream, start, end)
+    else:
+        query_url = 'https://adc.arm.gov/armlive/livedata/query?user={0}&ds={1}{2}{3}&wt=json'\
+         .format(cli_args.user, cli_args.datastream, start, end)
 
     if cli_args.debug: print("Getting file list using query url:\n\t{0}".format(query_url))
     # get url response, read the body of the message, and decode from bytes type to utf-8 string
@@ -163,8 +167,15 @@ def downloader(cli_args, output_dir, fname):
             os.makedirs(output_dir)
         # create file and write bytes to file
         with open(output_file, 'wb') as open_file:
-            open_file.write(requests.get(save_data_url).content)
-            print("[DOWNLOADED] {}".format(fname))
+            content_bytes = requests.get(save_data_url).content
+            if sys.getsizeof(content_bytes) > 200:
+                open_file.write(content_bytes)
+                print("[DOWNLOADED] {}".format(fname))
+            else:
+                os.remove(output_file)
+                msg = "This data file is not available on /data/archive. To download this file, please an order " \
+                      "via Data Discovery. https://adc.arm.gov/discovery"
+                print("[ERROR] {}\n{}".format(fname, msg))
         if cli_args.debug: print("file saved to --> {}\n".format(output_file))
 
 if __name__ == "__main__":

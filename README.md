@@ -21,6 +21,10 @@ Alternatively, the repository can be cloned and run using python if the requests
 Clone the project and navigate to the src directory and run the following command for more info.
 ```python getFiles.py --help```
 
+### Disclaimer
+This script will have issues verifying ssl certificates when using a mac and a proxy connection. To insure 
+that it will work in the most situations ssl cert verification has been disabled. Please use at your own risk.  
+
 ### Need help with pip?
 <details><summary>Click Here</summary>
 

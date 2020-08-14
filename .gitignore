@@ -1,4 +1,6 @@
 .docker
 .idea
 venv
-dev_
+src/dev_*
+output
+adrsws*

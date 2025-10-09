@@ -128,26 +128,9 @@ def main():
     if cli_args.debug: print("Getting file list using query url:\n\t{0}".format(query_url))
     # get url response, read the body of the message, and decode from bytes type to utf-8 string
 
-    timeout = 10
-    attempt = 0
-    while attempt < cli_args.retries:
-        try:
-            response = requests.get(query_url, timeout=timeout, verify=False)
-            response.raise_for_status()  # Raise for HTTP errors
-            response_body = response.text
-            # if the response is an html doc, then there was an error with the user
-            if response_body[1:14] == "!DOCTYPE html":
-                print("WARNING: Error with user. Check username or token.")
-                exit(1)
-            break
-        except Exception as e:
-            print(f"[ERROR] Attempt {attempt + 1}: {e}")
-
-        attempt += 1
-        time.sleep(10)
-
     # parse into json object
-    response_body_json = json.loads(response_body)
+    response_body_json = get_files_list(query_url, cli_args.retries)
+
     if cli_args.debug: print("response body:\n{0}\n".format(json.dumps(response_body_json, indent=True)))
 
     # construct output directory
@@ -249,6 +232,37 @@ def download_with_retries(cli_args, output_dir, fname):
             time.sleep(sleep_time)
         else:
             raise Exception(f"[FAILED] All {retries} attempts failed for {save_data_url}.")
+
+
+def get_files_list(query_url, retries=5):
+    print("Getting file list using query url:\n\t{0}".format(query_url))
+    # get url response, read the body of the message, and decode from bytes type to utf-8 string
+
+    timeout = 10
+    attempt = 0
+    success = False
+    while attempt < retries:
+        try:
+            response = requests.get(query_url, timeout=timeout, verify=False)
+            response.raise_for_status()  # Raise for HTTP errors
+            response_body = response.text
+            # if the response is an html doc, then there was an error with the user
+            if response_body[1:14] == "!DOCTYPE html":
+                print("WARNING: Error with user. Check username or token.")
+                exit(1)
+            success=True
+            break
+
+        except Exception as e:
+            print(f"[ERROR] Attempt {attempt + 1}: {e}")
+
+        attempt += 1
+        time.sleep(10)
+
+    if success:
+        return json.loads(response_body)
+    else:
+        raise Exception()
 
 if __name__ == "__main__":
     try:

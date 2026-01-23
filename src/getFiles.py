@@ -21,6 +21,8 @@ from functools import partial
 from multiprocessing import Pool
 import time
 import random
+from pathlib import Path
+import traceback
 
 urllib3.disable_warnings()
 
@@ -90,6 +92,9 @@ def parse_arguments():
                              "Default=1, Max=24, Increase for faster downloading.")
     optional_artuments.add_argument("-r", "--retries", type=int, default=5,
                         help="Optional; Retries to get file")
+
+    optional_artuments.add_argument("-f", "--format", type=str, default=None,
+                        help="Download Format cdf or csv")
 
     if len(sys.argv) <= 1:
         parser.print_help()
@@ -169,6 +174,13 @@ def download_with_retries(cli_args, output_dir, fname):
 
     save_data_url = "https://adc.arm.gov/armlive/livedata/saveData?user={0}&file={1}".format(cli_args.user, fname)
 
+    # https://adc.arm.gov/armlive/mod?user=USER_ID:ACCESS_TOKEN&wt=cdf
+
+    json_body = [fname]
+    params = { "user": cli_args.user, "wt": cli_args.format }
+    headers = { "Content-Type": "application/json" }
+    mod_data_url = "https://adc.arm.gov/armlive/mod?user={0}".format(cli_args.user)
+
     # make directory if it doesn't exist
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir)
@@ -177,7 +189,14 @@ def download_with_retries(cli_args, output_dir, fname):
         success = False
         try:
             print(f"[TRY {attempt + 1}] Downloading: {save_data_url}")
-            response = requests.get(save_data_url, timeout=timeout, stream=True)
+            if cli_args.format:
+                response = requests.get(mod_data_url,  params=params, json=json_body, headers=headers)
+                file = Path(fname)
+                fname = file.with_suffix(".csv")
+                output_file = os.path.join(output_dir, fname)
+            else:
+                response = requests.get(save_data_url, timeout=timeout, stream=True)
+
             response.raise_for_status()
 
             content_length = response.headers.get('Content-Length')
@@ -192,7 +211,6 @@ def download_with_retries(cli_args, output_dir, fname):
 
             if not os.path.isdir(output_dir):
                 os.makedirs(output_dir)
-
             with open(output_file, 'wb') as open_file:
                 open_file.write(content_bytes)
                 print(f"[DOWNLOADED] {fname} ({actual_size} bytes)")
@@ -213,6 +231,7 @@ def download_with_retries(cli_args, output_dir, fname):
             print(f"[REQUEST FAILED] {fname}: {e}")
         except Exception as e:
             print(f"[UNEXPECTED ERROR] {fname}: {e}")
+            traceback.print_exc()
         finally:
             # Clean up partial download if file exists
             if not success and os.path.exists(output_file):

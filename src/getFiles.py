@@ -19,6 +19,10 @@ import os
 import urllib3
 from functools import partial
 from multiprocessing import Pool
+import time
+import random
+from pathlib import Path
+import traceback
 
 urllib3.disable_warnings()
 
@@ -86,6 +90,11 @@ def parse_arguments():
     optional_artuments.add_argument("-p", "--proc", type=int, dest="processes", default=1,
                         help="Optional; Farm work to subprocesses to speed up downloading.\n"
                              "Default=1, Max=24, Increase for faster downloading.")
+    optional_artuments.add_argument("-r", "--retries", type=int, default=5,
+                        help="Optional; Retries to get file")
+
+    optional_artuments.add_argument("-f", "--format", type=str, default=None,
+                        help="Download Format cdf or csv")
 
     if len(sys.argv) <= 1:
         parser.print_help()
@@ -123,14 +132,10 @@ def main():
 
     if cli_args.debug: print("Getting file list using query url:\n\t{0}".format(query_url))
     # get url response, read the body of the message, and decode from bytes type to utf-8 string
-    response_body = requests.get(query_url, verify=False).text
 
-    # if the response is an html doc, then there was an error with the user
-    if response_body[1:14] == "!DOCTYPE html":
-        print("WARNING: Error with user. Check username or token.")
-        exit(1)
     # parse into json object
-    response_body_json = json.loads(response_body)
+    response_body_json = get_files_list(query_url, cli_args.retries)
+
     if cli_args.debug: print("response body:\n{0}\n".format(json.dumps(response_body_json, indent=True)))
 
     # construct output directory
@@ -149,7 +154,8 @@ def main():
         if response_body_json["status"] == "success" and num_files > 0:
             processes = cli_args.processes if cli_args.processes < 24 else 24
             pool = Pool(processes)
-            partial_downloader = partial(downloader, cli_args, output_dir)
+            # partial_downloader = partial(downloader, cli_args, output_dir)
+            partial_downloader = partial(download_with_retries, cli_args, output_dir)
             pool.map(partial_downloader, response_body_json['files'])
         else:
             print("WARNING: No files returned or url status error.\n"
@@ -158,31 +164,124 @@ def main():
         if cli_args.debug: print("*** Files would have been downloaded to directory:\n----> {}".format(output_dir))
 
 
-def downloader(cli_args, output_dir, fname):
+def download_with_retries(cli_args, output_dir, fname):
+    attempt = 0
+    retries = 5
+    timeout = 10
+    backoff_factor = 2
+    min_size_bytes = 200
     output_file = os.path.join(output_dir, fname)
-    if os.path.isfile(output_file):
-        print("[SKIPPING] {}".format(fname))
-        return
-    else:
-        print("[DOWNLOADING] {}".format(fname))
-        # construct link to web service saveData function
-        save_data_url = "https://adc.arm.gov/armlive/livedata/saveData?user={0}&file={1}".format(cli_args.user, fname)
-        if cli_args.debug: print("Using link: {1}".format(fname, save_data_url))
-        # make directory if it doesn't exist
-        if not os.path.isdir(output_dir):
-            os.makedirs(output_dir)
-        # create file and write bytes to file
-        with open(output_file, 'wb') as open_file:
-            content_bytes = requests.get(save_data_url).content
-            if sys.getsizeof(content_bytes) > 200:
-                open_file.write(content_bytes)
-                print("[DOWNLOADED] {}".format(fname))
+
+    save_data_url = "https://adc.arm.gov/armlive/livedata/saveData?user={0}&file={1}".format(cli_args.user, fname)
+
+    # https://adc.arm.gov/armlive/mod?user=USER_ID:ACCESS_TOKEN&wt=cdf
+
+    json_body = [fname]
+    params = { "user": cli_args.user, "wt": cli_args.format }
+    headers = { "Content-Type": "application/json" }
+    mod_data_url = "https://adc.arm.gov/armlive/mod?user={0}".format(cli_args.user)
+
+    # make directory if it doesn't exist
+    if not os.path.isdir(output_dir):
+        os.makedirs(output_dir)
+
+    while attempt < retries:
+        success = False
+        try:
+            print(f"[TRY {attempt + 1}] Downloading: {save_data_url}")
+            if cli_args.format:
+                response = requests.get(mod_data_url,  params=params, json=json_body, headers=headers)
+                file = Path(fname)
+                fname = file.with_suffix(".csv")
+                output_file = os.path.join(output_dir, fname)
             else:
-                os.remove(output_file)
-                msg = "This data file is not available on /data/archive. To download this file, please an order " \
-                      "via Data Discovery. https://adc.arm.gov/discovery"
-                print("[ERROR] {}\n{}".format(fname, msg))
-        if cli_args.debug: print("file saved to --> {}\n".format(output_file))
+                response = requests.get(save_data_url, timeout=timeout, stream=True)
+
+            response.raise_for_status()
+
+            content_length = response.headers.get('Content-Length')
+            if content_length and int(content_length) < min_size_bytes:
+                raise ValueError(f"Content too small (Content-Length: {content_length})")
+
+            content_bytes = response.content
+            actual_size = sys.getsizeof(content_bytes)
+
+            if actual_size < min_size_bytes:
+                raise ValueError(f"Downloaded file too small (size: {actual_size} bytes)")
+
+            if not os.path.isdir(output_dir):
+                os.makedirs(output_dir)
+            with open(output_file, 'wb') as open_file:
+                open_file.write(content_bytes)
+                print(f"[DOWNLOADED] {fname} ({actual_size} bytes)")
+            success = True
+            if cli_args.debug: print("file saved to --> {}\n".format(output_file))
+            return True
+
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            print(f"[NETWORK ERROR] {fname}: {e}")
+        except requests.exceptions.HTTPError as e:
+            print(f"[HTTP ERROR] {fname}: {e} (Status Code: {response.status_code})")
+            if 400 <= response.status_code < 500:
+                # Client error (e.g., 404), probably won't succeed on retry
+                break
+        except ValueError as e:
+            print(f"[INVALID DATA] {fname}: {e}")
+        except requests.exceptions.RequestException as e:
+            print(f"[REQUEST FAILED] {fname}: {e}")
+        except Exception as e:
+            print(f"[UNEXPECTED ERROR] {fname}: {e}")
+            traceback.print_exc()
+        finally:
+            # Clean up partial download if file exists
+            if not success and os.path.exists(output_file):
+                try:
+                    os.remove(output_file)
+                    msg = "This data file is not available on /data/archive. To download this file, please an order " \
+                          "via Data Discovery. https://adc.arm.gov/discovery"
+                    print("[ERROR] {}\n{}".format(fname, msg))
+                except Exception as e:
+                    print(f"[CLEANUP ERROR] Could not delete {output_file}: {e}")
+
+        attempt += 1
+        if attempt < retries:
+            # Exponential backoff with jitter
+            sleep_time = backoff_factor ** attempt + random.uniform(0, 1)
+            print(f"[RETRYING] Waiting {sleep_time:.1f}s before next attempt...")
+            time.sleep(sleep_time)
+        else:
+            raise Exception(f"[FAILED] All {retries} attempts failed for {save_data_url}.")
+
+
+def get_files_list(query_url, retries=5):
+    print("Getting file list using query url:\n\t{0}".format(query_url))
+    # get url response, read the body of the message, and decode from bytes type to utf-8 string
+
+    timeout = 10
+    attempt = 0
+    success = False
+    while attempt < retries:
+        try:
+            response = requests.get(query_url, timeout=timeout, verify=False)
+            response.raise_for_status()  # Raise for HTTP errors
+            response_body = response.text
+            # if the response is an html doc, then there was an error with the user
+            if response_body[1:14] == "!DOCTYPE html":
+                print("WARNING: Error with user. Check username or token.")
+                exit(1)
+            success=True
+            break
+
+        except Exception as e:
+            print(f"[ERROR] Attempt {attempt + 1}: {e}")
+
+        attempt += 1
+        time.sleep(10)
+
+    if success:
+        return json.loads(response_body)
+    else:
+        raise Exception()
 
 if __name__ == "__main__":
     try:
